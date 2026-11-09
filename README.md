@@ -33,3 +33,5 @@ npm run dev
 Abre la URL que indique Vite, normalmente `http://localhost:5173`. La API responde en `http://127.0.0.1:8000/api/records` y su documentación está en `http://127.0.0.1:8000/docs`.
 
 La tabla permite filtrar por periodo, género, departamento, naturaleza del colegio y zona, y paginar los resultados. El navegador conserva las últimas 40 páginas consultadas mientras la pestaña permanece abierta.
+
+El dashboard incluye además un panel de promedios (`/api/stats?group_by=...`) que agrupa los puntajes por año, departamento, estrato y educación de los padres, con barras comparables, diferencia respecto al promedio general y tamaño de muestra (n) de cada grupo.

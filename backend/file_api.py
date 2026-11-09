@@ -149,6 +149,7 @@ DATASET_CACHE: DatasetCache | None = None
 LAST_ACCESS = 0.0
 FILTER_CACHE_KEY: tuple[str | None, ...] | None = None
 FILTER_CACHE_INDICES: array | None = None
+STATS_CACHE: dict[str, dict[str, Any]] = {}
 LOAD_STATE = {"status": "idle", "bytes_read": 0, "file_size": 0, "rows_loaded": 0, "error": None}
 
 
@@ -167,7 +168,7 @@ def read_progress_lines(source):
 
 
 def load_dataset() -> None:
-    global DATASET_CACHE, LAST_ACCESS, FILTER_CACHE_KEY, FILTER_CACHE_INDICES
+    global DATASET_CACHE, LAST_ACCESS, FILTER_CACHE_KEY, FILTER_CACHE_INDICES, STATS_CACHE
     try:
         file_size = DATASET_PATH.stat().st_size
         cache = DatasetCache()
@@ -187,6 +188,7 @@ def load_dataset() -> None:
             LAST_ACCESS = time.monotonic()
             FILTER_CACHE_KEY = None
             FILTER_CACHE_INDICES = None
+            STATS_CACHE = {}
             LOAD_STATE.update(status="ready", bytes_read=file_size, file_size=file_size, rows_loaded=len(cache), error=None)
     except (FileNotFoundError, OSError, ValueError, StopIteration, csv.Error, OverflowError, MemoryError) as error:
         with STATE_LOCK:
@@ -194,12 +196,13 @@ def load_dataset() -> None:
 
 
 def active_cache() -> DatasetCache | None:
-    global DATASET_CACHE, LAST_ACCESS, FILTER_CACHE_KEY, FILTER_CACHE_INDICES, LOAD_STATE
+    global DATASET_CACHE, LAST_ACCESS, FILTER_CACHE_KEY, FILTER_CACHE_INDICES, STATS_CACHE, LOAD_STATE
     with STATE_LOCK:
         if DATASET_CACHE is not None and time.monotonic() - LAST_ACCESS > CACHE_TTL_SECONDS:
             DATASET_CACHE = None
             FILTER_CACHE_KEY = None
             FILTER_CACHE_INDICES = None
+            STATS_CACHE = {}
             LOAD_STATE = {"status": "idle", "bytes_read": 0, "file_size": 0, "rows_loaded": 0, "error": None}
         if DATASET_CACHE is not None:
             LAST_ACCESS = time.monotonic()
@@ -294,6 +297,73 @@ def records(
         "records": result,
         "filters": {name: sorted(value for value in cache.category_values[name][1:] if value is not None) for name in FILTER_FIELDS},
     }
+
+
+GROUPABLE_FIELDS = ("period", "gender", "department", "municipality", "stratum", "mother_education", "father_education", "school_nature", "school_area", "school_schedule")
+
+
+@app.get("/api/stats")
+def stats(group_by: str = Query("period")) -> Any:
+    if group_by not in GROUPABLE_FIELDS:
+        raise HTTPException(status_code=422, detail=f"group_by debe ser uno de: {', '.join(GROUPABLE_FIELDS)}")
+    cache = active_cache()
+    if cache is None:
+        start_loading()
+        state = load_status()
+        if state["status"] == "error":
+            raise HTTPException(status_code=503, detail=state["error"])
+        return JSONResponse(status_code=202, content=state)
+
+    with STATE_LOCK:
+        cached = STATS_CACHE.get(group_by)
+    if cached is not None:
+        return cached
+
+    groups: dict[int, dict[str, Any]] = {}
+    codes = cache.category_codes[group_by]
+    score_arrays = {name: cache.scores[name] for name in SCORE_FIELDS}
+    for index in range(len(cache)):
+        code = codes[index]
+        bucket = groups.get(code)
+        if bucket is None:
+            bucket = {"count": 0, "sums": {name: 0 for name in SCORE_FIELDS}, "present": {name: 0 for name in SCORE_FIELDS}}
+            groups[code] = bucket
+        bucket["count"] += 1
+        for name, values in score_arrays.items():
+            value = values[index]
+            if value >= 0:
+                bucket["sums"][name] += value
+                bucket["present"][name] += 1
+
+    overall_count = len(cache)
+    overall_global = [bucket["sums"]["score_global"] for bucket in groups.values()]
+    overall_present = [bucket["present"]["score_global"] for bucket in groups.values()]
+    overall_avg = sum(overall_global) / sum(overall_present) if sum(overall_present) else None
+
+    result = []
+    for code, bucket in groups.items():
+        label = cache.category_values[group_by][code]
+        averages = {
+            name: round(bucket["sums"][name] / bucket["present"][name], 1) if bucket["present"][name] else None
+            for name in SCORE_FIELDS
+        }
+        result.append({
+            "value": label,
+            "count": bucket["count"],
+            "share": round(bucket["count"] * 100 / overall_count, 2) if overall_count else 0,
+            "averages": averages,
+            "diff_global": round(averages["score_global"] - overall_avg, 1) if averages["score_global"] is not None and overall_avg is not None else None,
+        })
+    result.sort(key=lambda item: (item["averages"]["score_global"] is None, -(item["averages"]["score_global"] or 0)))
+    payload = {
+        "group_by": group_by,
+        "total_records": overall_count,
+        "overall_average_global": round(overall_avg, 1) if overall_avg is not None else None,
+        "groups": result,
+    }
+    with STATE_LOCK:
+        STATS_CACHE[group_by] = payload
+    return payload
 
 
 @app.get("/api/load-status")

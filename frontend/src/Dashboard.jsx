@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, BarChart3, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, Loader2, RefreshCw, Table2, X } from 'lucide-react';
 
 const API_URL = 'http://127.0.0.1:8000/api';
 
@@ -68,6 +68,220 @@ const INITIAL_FILTERS = { period: '', gender: '', department: '', school_nature:
 const PAGE_SIZES = [20, 50, 100];
 const number = (value) => new Intl.NumberFormat('es-CO').format(value ?? 0);
 
+const STATS_VIEWS = [
+  { key: 'period', label: 'Por año' },
+  { key: 'department', label: 'Por departamento' },
+  { key: 'stratum', label: 'Por estrato' },
+  { key: 'mother_education', label: 'Por educación de la madre' },
+  { key: 'father_education', label: 'Por educación del padre' },
+];
+
+const SCORE_LABELS = {
+  score_reading: 'Lectura',
+  score_math: 'Matemáticas',
+  score_science: 'Naturales',
+  score_social: 'Sociales',
+  score_english: 'Inglés',
+  score_global: 'Global',
+};
+
+// Gráfico de líneas SVG para la tendencia por año, con línea de referencia del promedio general.
+function TrendChart({ groups, overall }) {
+  const W = 720, H = 260, PAD = { top: 24, right: 56, bottom: 40, left: 48 };
+  const points = [...groups]
+    .filter((group) => group.averages?.score_global != null)
+    .sort((a, b) => String(a.value).localeCompare(String(b.value)));
+  if (points.length < 2) return null;
+
+  const values = points.map((group) => group.averages.score_global);
+  const minY = Math.min(...values, overall ?? Infinity);
+  const maxY = Math.max(...values, overall ?? -Infinity);
+  const span = Math.max(10, maxY - minY);
+  const y0 = minY - span * 0.15, y1 = maxY + span * 0.15;
+  const x = (index) => PAD.left + (index * (W - PAD.left - PAD.right)) / (points.length - 1);
+  const y = (value) => PAD.top + (1 - (value - y0) / (y1 - y0)) * (H - PAD.top - PAD.bottom);
+  const path = points.map((group, index) => `${index === 0 ? 'M' : 'L'}${x(index)},${y(group.averages.score_global)}`).join(' ');
+
+  return (
+    <div className="trend" role="img" aria-label={`Tendencia del puntaje global por periodo. Promedio general ${overall}.`}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+        {[0, 0.5, 1].map((ratio) => {
+          const value = y0 + ratio * (y1 - y0);
+          return (
+            <g key={ratio}>
+              <line className="trend-grid" x1={PAD.left} x2={W - PAD.right} y1={y(value)} y2={y(value)} />
+              <text className="trend-tick" x={PAD.left - 8} y={y(value) + 4} textAnchor="end">{Math.round(value)}</text>
+            </g>
+          );
+        })}
+        {overall != null && (
+          <g>
+            <line className="trend-overall" x1={PAD.left} x2={W - PAD.right} y1={y(overall)} y2={y(overall)} />
+            <text className="trend-overall-label" x={W - PAD.right + 6} y={y(overall) + 4}>Prom. {overall}</text>
+          </g>
+        )}
+        <path className="trend-line" d={path} />
+        {points.map((group, index) => (
+          <g key={group.value}>
+            <circle className="trend-dot" cx={x(index)} cy={y(group.averages.score_global)} r="4.5">
+              <title>{group.value}: {group.averages.score_global} (n = {number(group.count)})</title>
+            </circle>
+            <text className="trend-value" x={x(index)} y={y(group.averages.score_global) - 10} textAnchor="middle">{group.averages.score_global}</text>
+            <text className="trend-tick" x={x(index)} y={H - PAD.bottom + 18} textAnchor="middle">{group.value}</text>
+            <text className="trend-n" x={x(index)} y={H - PAD.bottom + 32} textAnchor="middle">n={number(group.count)}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function StatsPanel() {
+  const [groupBy, setGroupBy] = useState('period');
+  const [stats, setStats] = useState(null);
+  const [statsError, setStatsError] = useState('');
+  const [statsLoading, setStatsLoading] = useState(true);
+  const statsCache = useRef(new Map());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const cached = statsCache.current.get(groupBy);
+    if (cached) {
+      setStats(cached);
+      setStatsError('');
+      setStatsLoading(false);
+      return () => controller.abort();
+    }
+    setStatsLoading(true);
+    setStatsError('');
+    async function fetchStats() {
+      try {
+        let response = await fetch(`${API_URL}/stats?group_by=${groupBy}`, { signal: controller.signal });
+        if (response.status === 202) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          response = await fetch(`${API_URL}/stats?group_by=${groupBy}`, { signal: controller.signal });
+        }
+        if (!response.ok) throw new Error(`Error ${response.status}: no fue posible calcular los promedios`);
+        const result = await response.json();
+        statsCache.current.set(groupBy, result);
+        setStats(result);
+      } catch (requestError) {
+        if (requestError.name !== 'AbortError') setStatsError(requestError.message);
+      } finally {
+        if (!controller.signal.aborted) setStatsLoading(false);
+      }
+    }
+    fetchStats();
+    return () => controller.abort();
+  }, [groupBy]);
+
+  const groups = stats?.groups ?? [];
+  const maxGlobal = Math.max(0, ...groups.map((group) => group.averages?.score_global ?? 0));
+  const overall = stats?.overall_average_global;
+  const isTrend = groupBy === 'period';
+  const overallPos = overall != null && maxGlobal ? Math.min(100, (overall / maxGlobal) * 100) : null;
+
+  return (
+    <section className="stats" aria-label="Promedios por grupo">
+      <div className="stats-head">
+        <h2>Promedios de puntaje global</h2>
+        <div className="segmented" role="group" aria-label="Agrupar promedios por">
+          {STATS_VIEWS.map((view) => (
+            <button type="button" key={view.key} className={groupBy === view.key ? 'on' : ''}
+              aria-pressed={groupBy === view.key} onClick={() => setGroupBy(view.key)}>
+              {view.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {overall != null && (
+        <p className="stats-note">
+          Promedio general: <strong>{overall}</strong> · n = {number(stats.total_records)} registros.
+          La barra muestra el promedio del grupo y la diferencia respecto al promedio general.
+        </p>
+      )}
+      {statsError && <div className="error" role="alert"><strong>No se pudieron cargar los promedios</strong><span>{statsError}</span></div>}
+      {statsLoading && (
+        <div className="stats-loading" role="status" aria-live="polite">
+          <span className="stats-loading-head">
+            <Loader2 size={16} className="spin" aria-hidden="true" />
+            <strong>Calculando promedios{stats ? ' del nuevo grupo' : ''}…</strong>
+          </span>
+          <span className="indeterminate" aria-hidden="true"><span /></span>
+          <small>Se recorren {number(stats?.total_records ?? 1648767)} registros en memoria; suele tardar unos segundos.</small>
+        </div>
+      )}
+      <div className="stats-chart" aria-busy={statsLoading}>
+        {statsLoading && !stats && Array.from({ length: 6 }, (_, row) => (
+          <div className="stats-row" key={row} aria-hidden="true">
+            <span className="stats-label"><span className="skeleton" /></span>
+            <span className="stats-bar-track"><span className="skeleton" /></span>
+            <span className="stats-value"><span className="skeleton" /></span>
+            <span className="stats-diff"><span className="skeleton" /></span>
+            <span className="stats-n"><span className="skeleton" /></span>
+          </div>
+        ))}
+        {stats && isTrend && <TrendChart groups={groups} overall={overall} />}
+        {stats && !isTrend && (
+          <>
+            {overallPos != null && (
+              <div className="stats-overall-legend">
+                <span className="stats-overall-mark" />Promedio general: <strong>{overall}</strong>
+              </div>
+            )}
+            {groups.map((group) => {
+              const avg = group.averages?.score_global;
+              const width = avg != null && maxGlobal ? (avg / maxGlobal) * 100 : 0;
+              const diff = group.diff_global;
+              return (
+                <div className={`stats-row${statsLoading ? ' stale' : ''}`} key={group.value ?? 'sin-dato'}>
+                  <span className="stats-label" title={group.value ?? 'Sin dato'}>{group.value ?? 'Sin dato'}</span>
+                  <span className="stats-bar-track">
+                    <span className="stats-bar" style={{ width: `${width}%` }} />
+                    {overallPos != null && <span className="stats-overall-line" style={{ left: `${overallPos}%` }} aria-hidden="true" />}
+                  </span>
+                  <span className="stats-value">{avg ?? '—'}</span>
+                  <span className={`stats-diff ${diff > 0 ? 'up' : diff < 0 ? 'down' : ''}`}>
+                    {diff != null ? `${diff > 0 ? '+' : ''}${diff}` : '—'}
+                  </span>
+                  <span className="stats-n">n = {number(group.count)}</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+      {groups.length > 0 && (
+        <details className="stats-areas">
+          <summary>Ver promedios por área evaluada</summary>
+          <div className="stats-areas-table">
+            <table className="grid dense">
+              <thead>
+                <tr>
+                  <th>Grupo</th>
+                  {Object.values(SCORE_LABELS).map((label) => <th key={label} className="num">{label}</th>)}
+                  <th className="num">n</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((group) => (
+                  <tr key={group.value ?? 'sin-dato'}>
+                    <td>{group.value ?? 'Sin dato'}</td>
+                    {Object.keys(SCORE_LABELS).map((scoreKey) => (
+                      <td key={scoreKey} className="num">{group.averages?.[scoreKey] ?? '—'}</td>
+                    ))}
+                    <td className="num">{number(group.count)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
 function Cell({ column, value }) {
   const numeric = column.kind === 'bar' || column.kind === 'num';
   if (value == null || value === '') return <td className={numeric ? 'num muted' : 'muted'}>—</td>;
@@ -99,6 +313,7 @@ function SkeletonRows({ rows, cells }) {
 }
 
 function Dashboard() {
+  const [tab, setTab] = useState('stats');
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -199,6 +414,18 @@ function Dashboard() {
         </span>
       </header>
 
+      <nav className="tabs" role="tablist" aria-label="Vistas del dashboard">
+        <button type="button" role="tab" aria-selected={tab === 'stats'} className={tab === 'stats' ? 'on' : ''} onClick={() => setTab('stats')}>
+          <BarChart3 size={14} />Promedios
+        </button>
+        <button type="button" role="tab" aria-selected={tab === 'data'} className={tab === 'data' ? 'on' : ''} onClick={() => setTab('data')}>
+          <Table2 size={14} />Datos
+        </button>
+      </nav>
+
+      {tab === 'stats' && <StatsPanel />}
+
+      {tab === 'data' && (<>
       <section className="kpis" aria-label="Resumen">
         <div className="kpi">
           <span className="kpi-label">Registros depurados</span>
@@ -327,6 +554,7 @@ function Dashboard() {
           </div>
         </section>
       )}
+      </>)}
     </main>
   );
 }
