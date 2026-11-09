@@ -1,0 +1,57 @@
+# ===== Datos (archivos muy grandes para GitHub: límite 100 MB) =====
+icfes_data.csv
+*.sqlite3
+*.sqlite
+*.db
+backend/data/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node / Frontend =====
+node_modules/
+dist/
+build/
+*.local
+
+# ===== Secretos y llaves (NUNCA subir) =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.keystore
+id_rsa*
+id_ed25519*
+*.ppk
+secrets.json
+credentials.json
+config/secrets.*
+*.secret
+
+# ===== Sistema operativo =====
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ===== Editores =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== Logs =====
+*.log
+logs/
