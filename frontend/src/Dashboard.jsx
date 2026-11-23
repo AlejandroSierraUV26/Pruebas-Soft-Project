@@ -86,7 +86,7 @@ const SCORE_LABELS = {
 };
 
 // Gráfico de líneas SVG para la tendencia por año, con línea de referencia del promedio general.
-function TrendChart({ groups, overall }) {
+export function TrendChart({ groups, overall }) {
   const W = 720, H = 260, PAD = { top: 24, right: 56, bottom: 40, left: 48 };
   const points = [...groups]
     .filter((group) => group.averages?.score_global != null)
@@ -282,7 +282,7 @@ function StatsPanel() {
   );
 }
 
-function Cell({ column, value }) {
+export function Cell({ column, value }) {
   const numeric = column.kind === 'bar' || column.kind === 'num';
   if (value == null || value === '') return <td className={numeric ? 'num muted' : 'muted'}>—</td>;
   switch (column.kind) {
