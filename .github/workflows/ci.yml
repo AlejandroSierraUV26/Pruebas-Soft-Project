@@ -14,8 +14,12 @@ concurrency:
 
 jobs:
   backend-tests:
-    name: Backend tests
+    name: Backend tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
     defaults:
       run:
         working-directory: backend
@@ -26,18 +30,18 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Run tests
-        run: python -m pytest tests -q
+      - name: Run tests with coverage
+        run: python -m pytest tests -q --cov=file_api --cov-report=term-missing --cov-fail-under=90
 
-  frontend-build:
-    name: Frontend build
+  frontend-tests:
+    name: Frontend tests and build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -55,6 +59,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run tests
+        run: npm test
 
       - name: Build
         run: npm run build

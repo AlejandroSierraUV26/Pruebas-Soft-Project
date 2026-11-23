@@ -16,6 +16,9 @@ ENV/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # ===== Node / Frontend =====
 node_modules/
