@@ -5,7 +5,7 @@ Prototipo con API FastAPI y dashboard React para consultar el archivo `icfes_dat
 ## Requisitos
 
 - Python 3.10 o superior.
-- Node.js 20 o superior.
+- Node.js 22.12 o superior.
 - El archivo `icfes_data.csv` en la raíz del proyecto.
 
 El archivo de origen ocupa aproximadamente 1,2 GB y está separado por tabulaciones. La API lo lee directamente como archivo plano, conserva las variables usadas por la tabla, limpia espacios y descarta filas sin datos esenciales. No utiliza una base de datos ni genera copias en disco. La primera consulta muestra el progreso de lectura y prepara una caché compacta en memoria; filtros y páginas posteriores reutilizan esos datos. La caché se libera tras 15 minutos sin actividad o al cerrar la API.
