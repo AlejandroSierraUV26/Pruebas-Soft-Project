@@ -36,14 +36,22 @@ La tabla permite filtrar por periodo, género, departamento, naturaleza del cole
 
 ## Pruebas
 
-Las pruebas del backend usan `pytest`:
+Las pruebas del backend usan `pytest` y exigen al menos 90 % de cobertura de `file_api.py`:
 
 ```powershell
 cd backend
 pip install -r requirements-dev.txt
-python -m pytest tests -q
+python -m pytest tests -q --cov=file_api --cov-report=term-missing --cov-fail-under=90
 ```
 
-El flujo de GitHub Actions (`.github/workflows/ci.yml`) ejecuta estas pruebas y el build del frontend en cada push a `main` y en cada pull request.
+Las pruebas del frontend usan `Vitest` y `Testing Library`:
+
+```powershell
+cd frontend
+npm install
+npm test
+```
+
+El flujo de GitHub Actions (`.github/workflows/ci.yml`) ejecuta ambas suites en Python 3.10 y 3.12, y el build del frontend, en cada push a `main` y en cada pull request.
 
 El dashboard incluye además un panel de promedios (`/api/stats?group_by=...`) que agrupa los puntajes por año, departamento, estrato y educación de los padres, con barras comparables, diferencia respecto al promedio general y tamaño de muestra (n) de cada grupo.
