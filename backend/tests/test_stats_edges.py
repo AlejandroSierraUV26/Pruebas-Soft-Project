@@ -21,7 +21,7 @@ def test_todos_los_campos_agrupables_funcionan(field, positions, fresh_state):
 
 def test_empates_mantienen_orden_determinista(positions, fresh_state):
     rows = [
-        make_row(ESTU_CONSECUTIVO="S1", ESTU_DEPTO_RESIDE="VALLE", PUNT_GLOBAL="300"),
+        make_row(ESTU_CONSECUTIVO="S1", ESTU_DEPTO_RESIDE="VALL", PUNT_GLOBAL="300"),
         make_row(ESTU_CONSECUTIVO="S2", ESTU_DEPTO_RESIDE="CAUCA", PUNT_GLOBAL="300"),
     ]
     install_cache(build_cache(rows, positions))
