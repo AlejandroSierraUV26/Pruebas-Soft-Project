@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from array import array
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +54,11 @@ CATEGORY_FIELDS = (
 SCORE_FIELDS = (
     "score_reading", "score_math", "score_science", "score_social", "score_english", "score_global", "percentile_global",
 )
+# Rangos oficiales del ICFES: el puntaje global va de 0 a 500 y las áreas y el percentil de 0 a 100.
+SCORE_RANGES = {
+    **{name: (0.0, 100.0) for name in SCORE_FIELDS},
+    "score_global": (0.0, 500.0),
+}
 NUMERIC_FIELDS = ("age", *SCORE_FIELDS)
 WIDE_CATEGORIES = ("school_name",)
 CACHE_TTL_SECONDS = 900
@@ -72,10 +78,19 @@ def clean_value(value: str | None) -> str | None:
 
 
 def age_at_exam(birth_date: str | None, period: int) -> float | None:
-    try:
-        age = period // 10 - int((birth_date or "").split("/")[-1])
-    except ValueError:
+    parts = (birth_date or "").split("/")
+    if len(parts) != 3:
         return None
+    try:
+        day, month, year = (int(part) for part in parts)
+        birth = date(year, month, day)
+        # El último dígito del periodo (AAAAS) identifica el semestre de aplicación.
+        # 20194 corresponde al segundo semestre (agosto de 2019).
+        exam_month = {1: 3, 2: 6, 3: 8, 4: 8}.get(period % 10, 6)
+        exam = date(period // 10, exam_month, 1)
+    except (TypeError, ValueError):
+        return None
+    age = exam.year - birth.year - ((exam.month, exam.day) < (birth.month, birth.day))
     return float(age) if 10 <= age <= 90 else None
 
 
@@ -92,6 +107,9 @@ def clean_record(raw: list[str], positions: dict[str, int]) -> dict[str, Any] | 
         record["age"] = age_at_exam(record.pop("birth_date"), period)
         for name in SCORE_FIELDS:
             record[name] = float(record[name]) if record[name] is not None else None
+            low, high = SCORE_RANGES[name]
+            if record[name] is not None and not low <= record[name] <= high:
+                return None
     except ValueError:
         return None
     if record["score_global"] is None:
@@ -328,7 +346,9 @@ def stats(group_by: str = Query("period")) -> Any:
         if bucket is None:
             bucket = {"count": 0, "sums": {name: 0 for name in SCORE_FIELDS}, "present": {name: 0 for name in SCORE_FIELDS}}
             groups[code] = bucket
-        bucket["count"] += 1
+        # n (count) es el número de estudiantes con los que se calculó el promedio global.
+        if cache.scores["score_global"][index] >= 0:
+            bucket["count"] += 1
         for name, values in score_arrays.items():
             value = values[index]
             if value >= 0:
