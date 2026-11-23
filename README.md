@@ -34,4 +34,16 @@ Abre la URL que indique Vite, normalmente `http://localhost:5173`. La API respon
 
 La tabla permite filtrar por periodo, género, departamento, naturaleza del colegio y zona, y paginar los resultados. El navegador conserva las últimas 40 páginas consultadas mientras la pestaña permanece abierta.
 
+## Pruebas
+
+Las pruebas del backend usan `pytest`:
+
+```powershell
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+El flujo de GitHub Actions (`.github/workflows/ci.yml`) ejecuta estas pruebas y el build del frontend en cada push a `main` y en cada pull request.
+
 El dashboard incluye además un panel de promedios (`/api/stats?group_by=...`) que agrupa los puntajes por año, departamento, estrato y educación de los padres, con barras comparables, diferencia respecto al promedio general y tamaño de muestra (n) de cada grupo.
