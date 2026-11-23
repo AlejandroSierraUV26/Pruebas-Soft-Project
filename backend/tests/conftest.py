@@ -109,6 +109,7 @@ def fresh_state():
         file_api.FILTER_CACHE_INDICES = None
         file_api.STATS_CACHE = {}
         file_api.LAST_ACCESS = 0.0
+        file_api.LOAD_STATE.update(status="idle", bytes_read=0, file_size=0, rows_loaded=0, error=None)
     reset()
     yield file_api
     reset()
